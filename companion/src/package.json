@@ -1,0 +1,19 @@
+{
+  "name": "code-server-mcp-companion",
+  "displayName": "code-server MCP companion",
+  "description": "Shares open editors, selection and problems with the code-server MCP server and opens files it asks for",
+  "version": "0.1.0",
+  "publisher": "spnet",
+  "license": "UNLICENSED",
+  "engines": {
+    "vscode": "^1.80.0"
+  },
+  "extensionKind": [
+    "workspace"
+  ],
+  "activationEvents": [
+    "onStartupFinished"
+  ],
+  "main": "./extension.js",
+  "contributes": {}
+}
