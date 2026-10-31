@@ -94,8 +94,7 @@ async function installCompanion() {
 
   const target = `${config.companionDir}/${path.basename(vsix)}`;
   files.mkdirs(files.toLocal(config.companionDir));
-  fs.copyFileSync(vsix, files.toLocal(target));
-  files.chown(files.toLocal(target));
+  files.copyNoFollow(vsix, files.toLocal(target));
   const r = await docker.exec(
     [config.codeServerBin, "--user-data-dir", `${config.homeDir}/data`, "--extensions-dir", `${config.homeDir}/extensions`, "--install-extension", target, "--force"],
     { user: config.execUser, env: [`HOME=${config.homeDir}`], timeoutMs: 120000 },
@@ -144,7 +143,7 @@ function registerTools(server, level) {
       inputSchema: { include_problems: z.boolean().optional().describe("Include each problem, not only the counts (default true)"), include_stale: z.boolean().optional().describe("Also windows that closed, with their last state") },
       annotations: read,
     },
-    wrap((a) => editors.openEditors(a)),
+    wrap((a) => editors.openEditors(a, { selectionText: level === "full" })),
   );
 
   server.registerTool(

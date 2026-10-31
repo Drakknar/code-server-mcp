@@ -27,9 +27,9 @@ mk(".ssh/id_rsa", "PRIVATE");
 mk("data/User/settings.json", '{"a":1}');
 mk("data/coder.json", '{"update":{"version":"4.141.0"}}');
 mk("extensions/extensions.json", JSON.stringify([{ identifier: { id: "ms-python.python" }, version: "2026.4.0" }]));
-mk(".code-server-mcp/state-abc.json", JSON.stringify({ session: "abc", updatedAt: new Date().toISOString(), focused: true, workspaceFolders: ["/projects"], activeEditor: { path: "/projects/notes.md", cursor: { line: 2, column: 1 } }, tabGroups: [], unsaved: ["/projects/notes.md"], terminals: ["bash"], problems: { errors: 1, warnings: 0, items: [{ path: "/projects/proj/main.py", line: 2, severity: "error", message: "x" }] } }));
+mk(".code-server-mcp/state-abc.json", JSON.stringify({ session: "abc", updatedAt: new Date().toISOString(), focused: true, workspaceFolders: ["/projects"], activeEditor: { path: "/projects/notes.md", cursor: { line: 2, column: 1 }, selection: { start: 2, end: 2, text: "SELECTED_MARK" } }, tabGroups: [], unsaved: ["/projects/notes.md"], terminals: ["bash"], problems: { errors: 1, warnings: 0, items: [{ path: "/projects/proj/main.py", line: 2, severity: "error", message: "x" }] } }));
 // Secrets the read-only token must not reach (READ_TOKEN_DENY_NAMES defaults)
-for (const f of ["proj/.env", "proj/.env.example", "proj/certs/server.pem", "proj/.ssh/id_ed25519", "proj/repo/.git/config"]) pmk(f, "SECRET_MARK\n");
+for (const f of ["proj/.git-credentials", "proj/.netrc", "proj/app.db", "proj/.aws/credentials", "proj/.env", "proj/.env.example", "proj/certs/server.pem", "proj/.ssh/id_ed25519", "proj/repo/.git/config"]) pmk(f, "SECRET_MARK\n");
 pmk("proj/.ssh/id_ed25519.pub", "ssh-ed25519 PUBLIC_MARK\n");
 const fileLinks = process.platform !== "win32";
 if (fileLinks) fs.symlinkSync(path.join(projects, "proj/.env"), path.join(projects, "proj/envlink"));
@@ -46,7 +46,7 @@ const dockerSrv = http.createServer((req, res) => {
     const u = req.url;
     if (u.startsWith("/containers/code-server/json")) return res.end(JSON.stringify({ State: { Status: "running", Running: true, StartedAt: "2026-10-17T00:00:00Z" }, RestartCount: 0, Config: { Image: "lscr.io/linuxserver/code-server", Env: ["PUID=99", "DEFAULT_WORKSPACE=/projects"] } }));
     if (u.startsWith("/containers/code-server/stats")) return res.end(JSON.stringify({ cpu_stats: { cpu_usage: { total_usage: 2000 }, system_cpu_usage: 20000, online_cpus: 4 }, precpu_stats: { cpu_usage: { total_usage: 1000 }, system_cpu_usage: 10000 }, memory_stats: { usage: 300 * 1048576, limit: 8192 * 1048576, stats: { inactive_file: 100 * 1048576 } }, pids_stats: { current: 42 } }));
-    if (u.startsWith("/containers/code-server/logs")) return res.end(Buffer.concat([frame("2026-10-17T01:00:00Z \x1b[32m[info]\x1b[0m started\n"), frame("2026-10-17T01:00:01Z hello\n")]));
+    if (u.startsWith("/containers/code-server/logs")) return res.end(Buffer.concat([frame("2026-10-17T01:00:00Z \x1b[32m[info]\x1b[0m started\n"), frame("2026-10-17T01:00:01Z hello\n"), frame("2026-10-17T01:00:02Z PGPASSWORD fakelogvalue1\n")]));
     if (u === "/containers/code-server/exec") { lastExec = JSON.parse(body); res.statusCode = 201; return res.end(JSON.stringify({ Id: "e1" })); }
     if (u === "/exec/e1/start" && lastExec.Cmd.join(" ").includes("bigout")) { for (let i = 0; i < 300; i++) res.write(frame("line " + i + " " + "z".repeat(10000) + "\n")); return res.end(frame("LAST\n")); }
     if (u === "/exec/e1/start") return res.end(lastExec.Cmd.includes("--version") ? frame("4.141.0 abc123 with Code 1.105.0\n") : frame("ran: " + lastExec.Cmd.join(" ") + "\n"));
@@ -87,6 +87,7 @@ const healthSrv = http.createServer((q, r) => r.end(JSON.stringify({ status: "al
   assert.strictEqual(st.version.split(" ")[0], "4.141.0"); assert.strictEqual(st.update_available, false); assert(!st.latest_known_version);
   assert.strictEqual(st.default_workspace, "/projects"); assert.strictEqual(st.mcp_workspace, "/projects"); assert.strictEqual(st.resources.memory_mib, 200); assert.strictEqual(st.windows_open, 1);
   const lg = await call(c, "logs", { lines: 5 }); assert(lg.lines[0].includes("[info] started"), JSON.stringify(lg));
+  assert(!JSON.stringify(lg).includes("fakelogvalue1"), "logs are filtered");
 
   const ls = await call(c, "list_files", { depth: 3 });
   const paths = ls.entries.map((e) => e.path);
@@ -129,6 +130,16 @@ const healthSrv = http.createServer((q, r) => r.end(JSON.stringify({ status: "al
 
   // editors / commands / restart
   const oe = await call(c, "open_editors"); assert.strictEqual(oe.windows[0].problems.errors, 1);
+  assert.strictEqual(oe.windows[0].activeEditor.selection.text, "SELECTED_MARK");
+  const oeRo = await call(ro, "open_editors");
+  assert.strictEqual(oeRo.windows[0].activeEditor.selection.end, 2);
+  assert(!JSON.stringify(oeRo).includes("SELECTED_MARK"), "the read token doesn't see selected text");
+  if (fileLinks) {
+    put(ROOT, "outside/state.json", JSON.stringify({ session: "PLANTED_MARK", updatedAt: new Date().toISOString() }));
+    fs.symlinkSync(path.join(ROOT, "outside/state.json"), path.join(home, ".code-server-mcp/state-planted.json"));
+    assert(!JSON.stringify(await call(c, "open_editors")).includes("PLANTED_MARK"), "a planted state link isn't followed");
+    fs.rmSync(path.join(home, ".code-server-mcp/state-planted.json"));
+  }
   const rc = await call(c, "run_command", { command: "git status", timeout_seconds: 5 });
   assert(rc.output.includes("timeout -k 5 5 bash -c git status") && rc.cwd === "/projects" && lastExec.WorkingDir === "/projects", JSON.stringify(rc));
   assert.strictEqual(lastExec.User, "abc");
@@ -137,7 +148,17 @@ const healthSrv = http.createServer((q, r) => r.end(JSON.stringify({ status: "al
   const plan = await call(c, "restart_code_server"); assert(plan.plan && plan.unsaved.length === 1, JSON.stringify(plan));
   assert.strictEqual((await call(c, "restart_code_server", { apply: true })).restarted, "code-server");
   assert((await call(ro, "run_command", { command: "id" })).ERR || true);
+  // a link planted where the companion goes is replaced, its target left alone
+  const plantedVsix = fileLinks && require(APP + "/lib/status.js").bundledVsix();
+  if (plantedVsix) {
+    put(ROOT, "outside/planted-target", "UNTOUCHED");
+    fs.symlinkSync(path.join(ROOT, "outside/planted-target"), path.join(home, ".code-server-mcp", path.basename(plantedVsix)));
+  }
   const inst = await call(c, "install_companion"); assert(inst.installed.endsWith(".vsix") && fs.existsSync(path.join(home, ".code-server-mcp", inst.installed)), JSON.stringify(inst));
+  if (plantedVsix) {
+    assert.strictEqual(fs.readFileSync(path.join(ROOT, "outside/planted-target"), "utf-8"), "UNTOUCHED");
+    assert(!fs.lstatSync(path.join(home, ".code-server-mcp", inst.installed)).isSymbolicLink());
+  }
 
   // open_in_editor: a fake companion answers
   const reqDir = path.join(home, ".code-server-mcp/requests");
@@ -153,7 +174,7 @@ const healthSrv = http.createServer((q, r) => r.end(JSON.stringify({ status: "al
 
   // read-only token: secrets by name are hidden, the full token keeps access
   const roErr = async (p) => ((await call(ro, "read_file", { path: p })).ERR || "").includes("read-only token");
-  for (const p of ["proj/.env", "proj/.env.example", "proj/certs/server.pem", "proj/.ssh/id_ed25519", "proj/repo/.git/config", "/config/workspace/plink/.env"]) assert(await roErr(p), p);
+  for (const p of ["proj/.git-credentials", "proj/.netrc", "proj/app.db", "proj/.aws/credentials", "proj/.env", "proj/.env.example", "proj/certs/server.pem", "proj/.ssh/id_ed25519", "proj/repo/.git/config", "/config/workspace/plink/.env"]) assert(await roErr(p), p);
   if (fileLinks) assert(await roErr("proj/envlink"), "a symlink to .env");
   assert.strictEqual((await call(ro, "read_file", { path: "proj/.ssh/id_ed25519.pub" })).content, "ssh-ed25519 PUBLIC_MARK\n");
   assert.strictEqual((await call(c, "read_file", { path: "proj/.env" })).content, "SECRET_MARK\n");
@@ -163,7 +184,7 @@ const healthSrv = http.createServer((q, r) => r.end(JSON.stringify({ status: "al
   assert((await call(c, "list_files", { path: "proj", depth: 3 })).entries.some((e) => e.path === "/projects/proj/.env"));
   assert.strictEqual((await call(ro, "search_files", { query: "SECRET_MARK" })).matches, 0);
   assert.strictEqual((await call(ro, "search_files", { query: "PUBLIC_MARK" })).matches, 1);
-  assert.strictEqual((await call(c, "search_files", { query: "SECRET_MARK", path: "proj" })).matches, 4); // .git is never searched, symlinks are skipped
+  assert.strictEqual((await call(c, "search_files", { query: "SECRET_MARK", path: "proj" })).matches, 8); // .git is never searched, symlinks are skipped
   assert(((await call(ro, "open_in_editor", { path: "proj/.env" })).ERR || "").includes("read-only token"));
   const cfgOff = require("child_process").spawnSync(process.execPath, ["-e", `console.log(require(${JSON.stringify(APP + "/lib/config.js")}).config.readTokenDenyNames.length)`], { env: { ...process.env, READ_TOKEN_DENY_NAMES: "" } });
   assert.strictEqual(String(cfgOff.stdout).trim(), "0", "an empty READ_TOKEN_DENY_NAMES turns the list off");
