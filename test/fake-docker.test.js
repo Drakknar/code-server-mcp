@@ -236,6 +236,12 @@ const healthSrv = http.createServer((q, r) => r.end(JSON.stringify({ status: "al
   assert(fs.existsSync(path.join(bdir, newB)) && fs.existsSync(path.join(bdir, "keep-me")) && !fs.existsSync(path.join(bdir, oldB)));
   assert.deepStrictEqual(filesLib.pruneBackups(later + 1000), [], "at most once an hour");
 
+  const { redact } = require("../lib/redact");
+  const started = Date.now();
+  redact("A".repeat(64000));
+  assert(Date.now() - started < 3000, "one long run of word characters stays fast");
+  assert.strictEqual(redact("API_TOKEN=abc123"), "API_TOKEN=[hidden]");
+
   console.log("ALL OK");
   process.exit(0);
 })().catch((e) => { console.error("FAIL", e); process.exit(1); });
