@@ -1,5 +1,7 @@
 # code-server MCP
 
+<img src="assets/icon.svg" alt="" width="96" align="right">
+
 MCP server (Streamable HTTP, stateless, `POST /mcp`) for a [code-server](https://github.com/coder/code-server) container, meant to be used through an MCP gateway such as LiteLLM.
 
 Image: `ghcr.io/drakknar/code-server-mcp`, port 8080. Mounts: `/data` (backups), code-server's own `/config` and any workspace folders (same paths inside both containers), `/var/run/docker.sock`. Set `HEALTH_URL` to code-server's `/healthz`.
